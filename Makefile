@@ -23,7 +23,7 @@ ASSUME_MASK ?= 0
 CPPFLAGS = -I libfdt -I . -DFDT_ASSUME_MASK=$(ASSUME_MASK)
 WARNINGS = -Wall -Wpointer-arith -Wcast-qual -Wnested-externs \
 	-Wstrict-prototypes -Wmissing-prototypes -Wredundant-decls -Wshadow
-CFLAGS = -g -Os $(SHAREDLIB_CFLAGS) -Werror $(WARNINGS) $(EXTRA_CFLAGS)
+CFLAGS = -g -Os $(SHAREDLIB_CFLAGS) $(WARNINGS) $(EXTRA_CFLAGS)
 
 BISON = bison
 LEX = flex
@@ -66,7 +66,12 @@ ifeq ($(HOSTOS),darwin)
 SHAREDLIB_EXT     = dylib
 SHAREDLIB_CFLAGS  = -fPIC
 SHAREDLIB_LDFLAGS = -fPIC -dynamiclib -Wl,-install_name -Wl,
+CFLAGS += -Werror
 else ifeq ($(HOSTOS),$(filter $(HOSTOS),msys cygwin))
+SHAREDLIB_EXT     = so
+SHAREDLIB_CFLAGS  =
+SHAREDLIB_LDFLAGS = -shared -Wl,--version-script=$(LIBFDT_version) -Wl,-soname,
+else ifeq ($(BINEXT),.exe)
 SHAREDLIB_EXT     = so
 SHAREDLIB_CFLAGS  =
 SHAREDLIB_LDFLAGS = -shared -Wl,--version-script=$(LIBFDT_version) -Wl,-soname,
@@ -74,6 +79,7 @@ else
 SHAREDLIB_EXT     = so
 SHAREDLIB_CFLAGS  = -fPIC
 SHAREDLIB_LDFLAGS = -fPIC -shared -Wl,--version-script=$(LIBFDT_version) -Wl,-soname,
+CFLAGS += -Werror
 endif
 
 #
@@ -138,16 +144,16 @@ define filechk
 endef
 
 
-include Makefile.convert-dtsv0
+#include Makefile.convert-dtsv0
 include Makefile.dtc
 include Makefile.utils
 
-BIN += convert-dtsv0
-BIN += dtc
-BIN += fdtdump
-BIN += fdtget
-BIN += fdtput
-BIN += fdtoverlay
+#BIN += convert-dtsv0$(BINEXT)
+BIN += dtc$(BINEXT)
+BIN += fdtdump$(BINEXT)
+BIN += fdtget$(BINEXT)
+BIN += fdtput$(BINEXT)
+BIN += fdtoverlay$(BINEXT)
 
 SCRIPTS = dtdiff
 
@@ -156,15 +162,13 @@ all: $(BIN) libfdt
 # We need both Python and swig to build/install pylibfdt.
 # This builds the given make ${target} if those deps are found.
 check_python_deps = \
-	if $(PKG_CONFIG) --cflags $(PYTHON) >/dev/null 2>&1; then \
-		if which swig >/dev/null 2>&1; then \
-			can_build=yes; \
-		fi; \
+	if which swig >/dev/null 2>&1; then \
+		can_build=yes; \
 	fi; \
 	if [ "$${can_build}" = "yes" ]; then \
 		$(MAKE) $${target}; \
 	else \
-		echo "\#\# Skipping pylibfdt (install python dev and swig to build)"; \
+		echo "\#\# Skipping pylibfdt (install swig to build)"; \
 	fi ;
 
 .PHONY: maybe_pylibfdt
@@ -179,7 +183,7 @@ endif
 ifneq ($(DEPTARGETS),)
 ifneq ($(MAKECMDGOALS),libfdt)
 -include $(DTC_OBJS:%.o=%.d)
--include $(CONVERT_OBJS:%.o=%.d)
+#-include $(CONVERT_OBJS:%.o=%.d)
 -include $(FDTDUMP_OBJS:%.o=%.d)
 -include $(FDTGET_OBJS:%.o=%.d)
 -include $(FDTPUT_OBJS:%.o=%.d)
@@ -207,7 +211,7 @@ $(LIBFDT_archive): $(addprefix $(LIBFDT_dir)/,$(LIBFDT_OBJS))
 
 $(LIBFDT_lib): $(addprefix $(LIBFDT_dir)/,$(LIBFDT_OBJS)) $(LIBFDT_version)
 	@$(VECHO) LD $@
-	$(CC) $(LDFLAGS) $(SHAREDLIB_LDFLAGS)$(LIBFDT_soname) -o $(LIBFDT_lib) \
+	$(CROSSPREFIX)$(CC) $(LDFLAGS) $(SHAREDLIB_LDFLAGS)$(LIBFDT_soname) -o $(LIBFDT_lib) \
 		$(addprefix $(LIBFDT_dir)/,$(LIBFDT_OBJS))
 	ln -sf $(LIBFDT_LIB) $(LIBFDT_dir)/$(LIBFDT_soname)
 
@@ -218,7 +222,7 @@ endif
 # This stops make from generating the lex and bison output during
 # auto-dependency computation, but throwing them away as an
 # intermediate target and building them again "for real"
-.SECONDARY: $(DTC_GEN_SRCS) $(CONVERT_GEN_SRCS)
+.SECONDARY: $(DTC_GEN_SRCS) #$(CONVERT_GEN_SRCS)
 
 install-bin: all $(SCRIPTS)
 	@$(VECHO) INSTALL-BIN
@@ -253,19 +257,19 @@ $(VERSION_FILE): Makefile FORCE
 	$(call filechk,version)
 
 
-dtc: $(DTC_OBJS)
+dtc$(BINEXT): $(DTC_OBJS)
 
-convert-dtsv0: $(CONVERT_OBJS)
-	@$(VECHO) LD $@
-	$(LINK.c) -o $@ $^
+#convert-dtsv0$(BINEXT): $(CONVERT_OBJS)
+#	@$(VECHO) LD $@
+#	$(CROSSPREFIX)$(LINK.c) -o $@ $^
 
-fdtdump:	$(FDTDUMP_OBJS)
+fdtdump$(BINEXT):	$(FDTDUMP_OBJS)
 
-fdtget:	$(FDTGET_OBJS) $(LIBFDT_lib)
+fdtget$(BINEXT):	$(FDTGET_OBJS) $(LIBFDT_archive)
 
-fdtput:	$(FDTPUT_OBJS) $(LIBFDT_lib)
+fdtput$(BINEXT):	$(FDTPUT_OBJS) $(LIBFDT_archive)
 
-fdtoverlay: $(FDTOVERLAY_OBJS) $(LIBFDT_lib)
+fdtoverlay$(BINEXT): $(FDTOVERLAY_OBJS) $(LIBFDT_archive)
 
 dist:
 	git archive --format=tar --prefix=dtc-$(dtc_version)/ HEAD \
@@ -311,12 +315,12 @@ tags: FORCE
 #
 TESTS_PREFIX=tests/
 
-TESTS_BIN += dtc
-TESTS_BIN += convert-dtsv0
-TESTS_BIN += fdtput
-TESTS_BIN += fdtget
-TESTS_BIN += fdtdump
-TESTS_BIN += fdtoverlay
+TESTS_BIN += dtc$(BINEXT)
+#TESTS_BIN += convert-dtsv0$(BINEXT)
+TESTS_BIN += fdtput$(BINEXT)
+TESTS_BIN += fdtget$(BINEXT)
+TESTS_BIN += fdtdump$(BINEXT)
+TESTS_BIN += fdtoverlay$(BINEXT)
 ifeq ($(NO_PYTHON),0)
 TESTS_PYLIBFDT += maybe_pylibfdt
 endif
@@ -341,37 +345,37 @@ clean: libfdt_clean pylibfdt_clean tests_clean
 #
 # Generic compile rules
 #
-%: %.o
+%$(BINEXT): %.o
 	@$(VECHO) LD $@
-	$(LINK.c) -o $@ $^ $(LDLIBS_$*)
+	$(CROSSPREFIX)$(LINK.c) -o $@ $^ $(LDLIBS_$*)
 
 %.o: %.c
 	@$(VECHO) CC $@
-	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ -c $<
+	$(CROSSPREFIX)$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ -c $<
 
 %.o: %.S
 	@$(VECHO) AS $@
-	$(CC) $(CPPFLAGS) $(AFLAGS) -D__ASSEMBLY__ -o $@ -c $<
+	$(CROSSPREFIX)$(CC) $(CPPFLAGS) $(AFLAGS) -D__ASSEMBLY__ -o $@ -c $<
 
 %.d: %.c
 	@$(VECHO) DEP $<
-	$(CC) $(CPPFLAGS) $(CFLAGS) -MM -MG -MT "$*.o $@" $< > $@
+	$(CROSSPREFIX)$(CC) $(CPPFLAGS) $(CFLAGS) -MM -MG -MT "$*.o $@" $< > $@
 
 %.d: %.S
 	@$(VECHO) DEP $<
-	$(CC) $(CPPFLAGS) -MM -MG -MT "$*.o $@" $< > $@
+	$(CROSSPREFIX)$(CC) $(CPPFLAGS) -MM -MG -MT "$*.o $@" $< > $@
 
 %.i:	%.c
 	@$(VECHO) CPP $@
-	$(CC) $(CPPFLAGS) -E $< > $@
+	$(CROSSPREFIX)$(CC) $(CPPFLAGS) -E $< > $@
 
 %.s:	%.c
 	@$(VECHO) CC -S $@
-	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ -S $<
+	$(CROSSPREFIX)$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ -S $<
 
 %.a:
 	@$(VECHO) AR $@
-	$(AR) $(ARFLAGS) $@ $^
+	$(CROSSPREFIX)$(AR) $(ARFLAGS) $@ $^
 
 %.lex.c: %.l
 	@$(VECHO) LEX $@
